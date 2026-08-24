@@ -25,39 +25,23 @@ public class Main {
 
         try {
 
-            // -------------------------------------------------
-            // 1. Initialize database
-            // -------------------------------------------------
-
             DatabaseManager.initializeDatabase();
 
-            // -------------------------------------------------
-            // 2. Validate input files
-            // -------------------------------------------------
-
             if (!Files.exists(resumeDirectory)) {
-
                 System.err.println(
                         "Resume directory does not exist: "
                                 + resumeDirectory
                 );
-
                 return;
             }
 
             if (!Files.exists(jobPath)) {
-
                 System.err.println(
                         "Job description does not exist: "
                                 + jobPath
                 );
-
                 return;
             }
-
-            // -------------------------------------------------
-            // 3. Load job description
-            // -------------------------------------------------
 
             String jobText =
                     Files.readString(jobPath);
@@ -80,9 +64,16 @@ public class Main {
                             + job.getRequiredSkills()
             );
 
-            // -------------------------------------------------
-            // 4. Screen all resumes
-            // -------------------------------------------------
+            ResumeRepository resumeRepository =
+                    new ResumeRepository();
+
+            int jobId =
+                    saveJobDescription(job);
+
+            System.out.println(
+                    "Job description stored. ID: "
+                            + jobId
+            );
 
             BatchScreener screener =
                     new BatchScreener();
@@ -93,20 +84,62 @@ public class Main {
                             job
                     );
 
-            // -------------------------------------------------
-            // 5. Display complete ranking
-            // -------------------------------------------------
+            for (CandidateResult candidate :
+                    results) {
+
+                try {
+
+                    PdfResumeExtractor extractor =
+                            new PdfResumeExtractor();
+
+                    Path resumePath =
+                            resumeDirectory.resolve(
+                                    candidate.getResumeFile()
+                            );
+
+                    String rawText =
+                            extractor.extractText(
+                                    resumePath
+                            );
+
+                    int resumeId =
+                            resumeRepository.save(
+                                    candidate.getResume(),
+                                    rawText
+                            );
+
+                    System.out.println(
+                            "Stored candidate: "
+                                    + candidate
+                                            .getResume()
+                                            .getName()
+                    );
+
+                    saveMatchResult(
+                            resumeId,
+                            jobId,
+                            candidate.getMatchResult()
+                    );
+
+                } catch (Exception e) {
+
+                    System.err.println(
+                            "Could not store candidate: "
+                                    + candidate
+                                            .getResumeFile()
+                    );
+
+                    e.printStackTrace();
+                }
+            }
 
             System.out.println();
-
             System.out.println(
                     "================================="
             );
-
             System.out.println(
                     "        CANDIDATE RANKING"
             );
-
             System.out.println(
                     "================================="
             );
@@ -123,10 +156,6 @@ public class Main {
 
                 for (CandidateResult candidate :
                         results) {
-
-                    MatchResult match =
-                            candidate
-                                    .getMatchResult();
 
                     System.out.println();
 
@@ -148,26 +177,31 @@ public class Main {
                             "   Score: "
                                     + String.format(
                                             "%.1f",
-                                            match.getScore()
+                                            candidate
+                                                    .getMatchResult()
+                                                    .getScore()
                                     )
                                     + "/10"
                     );
 
                     System.out.println(
                             "   Matched skills: "
-                                    + match
+                                    + candidate
+                                            .getMatchResult()
                                             .getMatchedSkills()
                     );
 
                     System.out.println(
                             "   Missing skills: "
-                                    + match
+                                    + candidate
+                                            .getMatchResult()
                                             .getMissingSkills()
                     );
 
                     System.out.println(
                             "   Justification: "
-                                    + match
+                                    + candidate
+                                            .getMatchResult()
                                             .getJustification()
                     );
 
@@ -175,31 +209,24 @@ public class Main {
                 }
             }
 
-            // -------------------------------------------------
-            // 6. Display top-3 shortlist
-            // -------------------------------------------------
+            System.out.println();
+            System.out.println(
+                    "================================="
+            );
+            System.out.println(
+                    "          TOP CANDIDATES"
+            );
+            System.out.println(
+                    "================================="
+            );
 
-            List<CandidateResult> shortlist =
+            List<CandidateResult> shortlisted =
                     screener.shortlist(
                             results,
                             3
                     );
 
-            System.out.println();
-
-            System.out.println(
-                    "================================="
-            );
-
-            System.out.println(
-                    "          TOP CANDIDATES"
-            );
-
-            System.out.println(
-                    "================================="
-            );
-
-            if (shortlist.isEmpty()) {
+            if (shortlisted.isEmpty()) {
 
                 System.out.println(
                         "No candidates available."
@@ -207,15 +234,15 @@ public class Main {
 
             } else {
 
-                int position = 1;
+                int rank = 1;
 
                 for (CandidateResult candidate :
-                        shortlist) {
+                        shortlisted) {
 
                     System.out.println();
 
                     System.out.println(
-                            position
+                            rank
                                     + ". "
                                     + candidate
                                             .getResume()
@@ -240,104 +267,135 @@ public class Main {
                                             .getJustification()
                     );
 
-                    position++;
+                    rank++;
                 }
             }
 
-            // -------------------------------------------------
-            // 7. LLM semantic matching
-            // -------------------------------------------------
-
             System.out.println();
-
             System.out.println(
                     "================================="
             );
-
-            System.out.println(
-                    "       LLM MATCHING STATUS"
-            );
-
-            System.out.println(
-                    "================================="
-            );
-
-            if (!results.isEmpty()) {
-
-                CandidateResult topCandidate =
-                        results.get(0);
-
-                LLMMatcher llmMatcher =
-                        new LLMMatcher();
-
-                LLMMatchResult llmResult =
-                        llmMatcher.match(
-                                topCandidate.getResume(),
-                                job
-                        );
-
-                if (llmResult.isSuccessful()) {
-
-                    System.out.println(
-                            "LLM semantic score: "
-                                    + String.format(
-                                            "%.1f",
-                                            llmResult.getScore()
-                                    )
-                                    + "/10"
-                    );
-
-                    System.out.println(
-                            "LLM justification:"
-                    );
-
-                    System.out.println(
-                            llmResult
-                                    .getJustification()
-                    );
-
-                } else {
-
-                    System.out.println(
-                            "LLM matching is not active."
-                    );
-
-                    System.out.println(
-                            llmResult
-                                    .getJustification()
-                    );
-                }
-            }
-
-            // -------------------------------------------------
-            // 8. Completion
-            // -------------------------------------------------
-
-            System.out.println();
-
-            System.out.println(
-                    "================================="
-            );
-
             System.out.println(
                     "       SCREENING COMPLETE"
             );
-
             System.out.println(
                     "================================="
             );
-
-            System.out.println();
 
         } catch (Exception e) {
 
             System.err.println();
-
             System.err.println(
                     "ERROR: Screening failed."
             );
 
             e.printStackTrace();
+        }
+    }
+
+    private static int saveJobDescription(
+            JobDescription job) {
+
+        String sql =
+                """
+                INSERT INTO job_descriptions
+                (title, description)
+                VALUES (?, ?)
+                """;
+
+        try (
+                java.sql.Connection connection =
+                        DatabaseManager.getConnection();
+
+                java.sql.PreparedStatement statement =
+                        connection.prepareStatement(
+                                sql,
+                                java.sql.Statement
+                                        .RETURN_GENERATED_KEYS
+                        )
+        ) {
+
+            statement.setString(
+                    1,
+                    job.getTitle()
+            );
+
+            statement.setString(
+                    2,
+                    job.getDescription()
+            );
+
+            statement.executeUpdate();
+
+            try (
+                    java.sql.ResultSet keys =
+                            statement.getGeneratedKeys()
+            ) {
+
+                if (keys.next()) {
+                    return keys.getInt(1);
+                }
+            }
+
+        } catch (java.sql.SQLException e) {
+
+            throw new RuntimeException(
+                    "Failed to save job description.",
+                    e
+            );
+        }
+
+        return -1;
+    }
+
+    private static void saveMatchResult(
+            int resumeId,
+            int jobId,
+            MatchResult result) {
+
+        String sql =
+                """
+                INSERT INTO match_results
+                (resume_id, job_id, score, justification)
+                VALUES (?, ?, ?, ?)
+                """;
+
+        try (
+                java.sql.Connection connection =
+                        DatabaseManager.getConnection();
+
+                java.sql.PreparedStatement statement =
+                        connection.prepareStatement(sql)
+        ) {
+
+            statement.setInt(
+                    1,
+                    resumeId
+            );
+
+            statement.setInt(
+                    2,
+                    jobId
+            );
+
+            statement.setDouble(
+                    3,
+                    result.getScore()
+            );
+
+            statement.setString(
+                    4,
+                    result.getJustification()
+            );
+
+            statement.executeUpdate();
+
+        } catch (java.sql.SQLException e) {
+
+            throw new RuntimeException(
+                    "Failed to save match result.",
+                    e
+            );
         }
     }
 }

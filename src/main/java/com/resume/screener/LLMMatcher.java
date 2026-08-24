@@ -28,13 +28,7 @@ public class LLMMatcher {
         String apiKey =
                 System.getenv("OPENAI_API_KEY");
 
-        /*
-         * The application remains usable without an API key.
-         * When OPENAI_API_KEY is configured, this method
-         * performs semantic LLM matching.
-         */
         if (apiKey == null || apiKey.isBlank()) {
-
             return new LLMMatchResult(
                     false,
                     0.0,
@@ -47,20 +41,20 @@ public class LLMMatcher {
                 System.getenv("OPENAI_MODEL");
 
         if (model == null || model.isBlank()) {
-            model = "gpt-5";
+            model = "gpt-4.1-mini";
         }
 
         String prompt = buildPrompt(resume, job);
 
         String requestBody =
                 "{"
-                + "\"model\":\""
-                + escape(model)
-                + "\","
-                + "\"input\":\""
-                + escape(prompt)
-                + "\""
-                + "}";
+                        + "\"model\":\""
+                        + escape(model)
+                        + "\","
+                        + "\"input\":\""
+                        + escape(prompt)
+                        + "\""
+                        + "}";
 
         HttpRequest request =
                 HttpRequest.newBuilder()
@@ -83,19 +77,22 @@ public class LLMMatcher {
         HttpResponse<String> response =
                 client.send(
                         request,
-                        HttpResponse.BodyHandlers
-                                .ofString()
+                        HttpResponse.BodyHandlers.ofString()
                 );
 
         if (response.statusCode() < 200
                 || response.statusCode() >= 300) {
+
+            System.err.println(
+                    "LLM API response: "
+                            + response.body()
+            );
 
             return new LLMMatchResult(
                     false,
                     0.0,
                     "LLM request failed. HTTP "
                             + response.statusCode()
-                            + "."
             );
         }
 
@@ -105,10 +102,22 @@ public class LLMMatcher {
         double score =
                 extractScore(output);
 
+        if (score < 1.0 || score > 10.0) {
+            return new LLMMatchResult(
+                    false,
+                    0.0,
+                    "LLM response did not contain "
+                            + "a valid 1-10 score."
+            );
+        }
+
+        String justification =
+                extractJustification(output);
+
         return new LLMMatchResult(
                 true,
                 score,
-                output
+                justification
         );
     }
 
@@ -117,27 +126,26 @@ public class LLMMatcher {
             JobDescription job) {
 
         return """
-                You are an expert technical recruiter.
+                Compare the following candidate resume
+                against the following job description.
 
-                Compare the candidate resume against the job description.
+                Evaluate the candidate based on:
 
-                Evaluate:
-                - required technical skills
-                - relevant experience
-                - projects
-                - education
-                - overall role relevance
+                - Required technical skills
+                - Relevant experience
+                - Education
+                - Projects
+                - Overall relevance to the role
 
                 Do not invent skills, experience, education,
-                or projects that are not present.
+                projects, or achievements.
 
                 Give a score from 1 to 10.
 
-                Return exactly:
+                Return exactly this format:
 
                 SCORE: <number from 1 to 10>
-                JUSTIFICATION: <2 to 4 concise sentences
-                explaining strengths, weaknesses and important gaps>
+                JUSTIFICATION: <2 to 4 concise sentences>
 
                 CANDIDATE
 
@@ -162,7 +170,7 @@ public class LLMMatcher {
                 Certifications:
                 %s
 
-                JOB
+                JOB DESCRIPTION
 
                 Title:
                 %s
@@ -170,26 +178,23 @@ public class LLMMatcher {
                 Description:
                 %s
                 """.formatted(
-                        resume.getName(),
-                        resume.getSummary(),
-                        String.join(
-                                ", ",
-                                resume.getSkills()
-                        ),
-                        resume.getExperience(),
-                        resume.getEducation(),
-                        resume.getProjects(),
-                        resume.getCertifications(),
-                        job.getTitle(),
-                        job.getDescription()
-                );
+                resume.getName(),
+                resume.getSummary(),
+                String.join(
+                        ", ",
+                        resume.getSkills()
+                ),
+                resume.getExperience(),
+                resume.getEducation(),
+                resume.getProjects(),
+                resume.getCertifications(),
+                job.getTitle(),
+                job.getDescription()
+        );
     }
 
     private String extractText(String json) {
 
-        /*
-         * Lightweight extraction keeps the project dependency-free.
-         */
         Pattern pattern =
                 Pattern.compile(
                         "\"text\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\""
@@ -224,7 +229,9 @@ public class LLMMatcher {
 
         Pattern pattern =
                 Pattern.compile(
-                        "SCORE\\s*:\\s*(10(?:\\.0)?|[1-9](?:\\.\\d+)?)",
+                        "SCORE\\s*:\\s*"
+                                + "(10(?:\\.0)?|"
+                                + "[1-9](?:\\.\\d+)?)",
                         Pattern.CASE_INSENSITIVE
                 );
 
@@ -244,6 +251,26 @@ public class LLMMatcher {
         }
     }
 
+    private String extractJustification(
+            String text) {
+
+        Pattern pattern =
+                Pattern.compile(
+                        "JUSTIFICATION\\s*:\\s*(.*)",
+                        Pattern.CASE_INSENSITIVE
+                        | Pattern.DOTALL
+                );
+
+        Matcher matcher =
+                pattern.matcher(text);
+
+        if (matcher.find()) {
+            return matcher.group(1).trim();
+        }
+
+        return text.trim();
+    }
+
     private String escape(String value) {
 
         if (value == null) {
@@ -254,6 +281,7 @@ public class LLMMatcher {
                 .replace("\\", "\\\\")
                 .replace("\"", "\\\"")
                 .replace("\n", "\\n")
-                .replace("\r", "\\r");
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 }

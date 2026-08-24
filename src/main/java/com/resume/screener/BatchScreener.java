@@ -13,21 +13,13 @@ public class BatchScreener {
     private final PdfResumeExtractor extractor;
     private final ResumeParser resumeParser;
     private final JobMatcher matcher;
-    private final ResumeRepository repository;
+    private final LLMMatcher llmMatcher;
 
     public BatchScreener() {
-
-        this.extractor =
-                new PdfResumeExtractor();
-
-        this.resumeParser =
-                new ResumeParser();
-
-        this.matcher =
-                new JobMatcher();
-
-        this.repository =
-                new ResumeRepository();
+        this.extractor = new PdfResumeExtractor();
+        this.resumeParser = new ResumeParser();
+        this.matcher = new JobMatcher();
+        this.llmMatcher = new LLMMatcher();
     }
 
     public List<CandidateResult> screen(
@@ -38,17 +30,6 @@ public class BatchScreener {
         List<CandidateResult> results =
                 new ArrayList<>();
 
-        /*
-         * Store the job description once.
-         */
-        int jobId =
-                repository.saveJob(job);
-
-        System.out.println(
-                "Job description stored. ID: "
-                        + jobId
-        );
-
         try (Stream<Path> files =
                      Files.list(resumeDirectory)) {
 
@@ -58,66 +39,25 @@ public class BatchScreener {
                     .forEach(file -> {
 
                         try {
-
-                            /*
-                             * 1. Extract PDF text
-                             */
                             String text =
-                                    extractor.extractText(
-                                            file
-                                    );
+                                    extractor.extractText(file);
 
-                            /*
-                             * 2. Parse resume
-                             */
                             Resume resume =
-                                    resumeParser.parse(
-                                            text
-                                    );
+                                    resumeParser.parse(text);
 
-                            /*
-                             * 3. Store resume
-                             */
-                            int resumeId =
-                                    repository.save(
-                                            resume,
-                                            text
-                                    );
-
-                            /*
-                             * 4. Match resume against job
-                             */
-                            MatchResult match =
-                                    matcher.match(
+                            MatchResult matchResult =
+                                    createMatchResult(
                                             resume,
                                             job
                                     );
 
-                            /*
-                             * 5. Store match result
-                             */
-                            repository.saveMatchResult(
-                                    resumeId,
-                                    jobId,
-                                    match.getScore(),
-                                    match.getJustification()
-                            );
-
-                            /*
-                             * 6. Add candidate to ranking
-                             */
                             results.add(
                                     new CandidateResult(
                                             file.getFileName()
                                                     .toString(),
                                             resume,
-                                            match
+                                            matchResult
                                     )
-                            );
-
-                            System.out.println(
-                                    "Stored candidate: "
-                                            + resume.getName()
                             );
 
                         } catch (Exception e) {
@@ -132,9 +72,6 @@ public class BatchScreener {
                     });
         }
 
-        /*
-         * Highest score first.
-         */
         results.sort(
                 Comparator.comparingDouble(
                         (CandidateResult result) ->
@@ -146,47 +83,37 @@ public class BatchScreener {
         return results;
     }
 
-    /*
-     * Return the top N candidates.
-     */
-    public List<CandidateResult> shortlist(
-            List<CandidateResult> results,
-            int limit) {
+    private MatchResult createMatchResult(
+            Resume resume,
+            JobDescription job) {
 
-        int count =
-                Math.min(
-                        limit,
-                        results.size()
+        MatchResult ruleBasedResult =
+                matcher.match(resume, job);
+
+        try {
+            LLMMatchResult llmResult =
+                    llmMatcher.match(resume, job);
+
+            if (llmResult.isSuccessful()) {
+
+                return new MatchResult(
+                        llmResult.getScore(),
+                        ruleBasedResult.getMatchedSkills(),
+                        ruleBasedResult.getMissingSkills(),
+                        llmResult.getJustification()
                 );
-
-        return new ArrayList<>(
-                results.subList(0, count)
-        );
-    }
-
-    /*
-     * Return candidates meeting a minimum score.
-     */
-    public List<CandidateResult> shortlistByScore(
-            List<CandidateResult> results,
-            double minimumScore) {
-
-        List<CandidateResult> shortlisted =
-                new ArrayList<>();
-
-        for (CandidateResult candidate :
-                results) {
-
-            if (candidate
-                    .getMatchResult()
-                    .getScore()
-                    >= minimumScore) {
-
-                shortlisted.add(candidate);
             }
+
+        } catch (Exception e) {
+
+            System.err.println(
+                    "LLM matching failed for "
+                            + resume.getName()
+                            + ". Using rule-based fallback."
+            );
         }
 
-        return shortlisted;
+        return ruleBasedResult;
     }
 
     private boolean isPdf(Path file) {
@@ -197,5 +124,17 @@ public class BatchScreener {
                         .toLowerCase();
 
         return fileName.endsWith(".pdf");
+    }
+
+    public List<CandidateResult> shortlist(
+            List<CandidateResult> results,
+            int limit) {
+
+        int count =
+                Math.min(limit, results.size());
+
+        return new ArrayList<>(
+                results.subList(0, count)
+        );
     }
 }

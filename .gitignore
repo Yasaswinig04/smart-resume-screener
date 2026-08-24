@@ -4,4 +4,9 @@ target/
 *.class
 .DS_Store
 *.log
+
 database/*.db
+
+.env
+.env.*
+!.env.example

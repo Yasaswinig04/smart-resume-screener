@@ -1,0 +1,11 @@
+John Doe
+
+Skills:
+Java, Spring Boot, SQL, REST API, Git, AWS
+
+Experience:
+Software Developer with 2 years of experience developing Java applications
+and REST APIs. Worked with SQL databases and AWS services.
+
+Education:
+Bachelor of Technology in Computer Science

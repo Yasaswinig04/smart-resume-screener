@@ -1,0 +1,12 @@
+Software Engineer
+
+We are looking for a Software Engineer with experience in Java,
+REST APIs, SQL databases and cloud technologies.
+
+Requirements:
+- Strong Java programming skills
+- Experience building REST APIs
+- Knowledge of SQL
+- Experience with Git
+- Familiarity with AWS
+- Good problem solving skills
